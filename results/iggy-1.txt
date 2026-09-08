@@ -1,0 +1,25 @@
+> Task :compileJava UP-TO-DATE
+> Task :processResources NO-SOURCE
+> Task :classes UP-TO-DATE
+
+> Task :bench
+[config] target=IGGY messages=1000000 size=256B batch=1000 partitions=1
+
+┌─────────────── RESULT ───────────────┐
+  target        : IGGY
+  messages      : 1,000,000
+  payload       : 256 B
+  batch         : 1000
+  partitions    : 1
+  ─────────────────────────────────────
+  produce       : 3.642 s
+    → msgs/sec  : 274,574
+    → MB/sec    : 70.3
+  consume       : 2.048 s
+    → msgs/sec  : 488,210
+    → MB/sec    : 125.0
+└──────────────────────────────────────┘
+{"target":"IGGY","messages":1000000,"size":256,"batch":1000,"partitions":1,"produce_s":3.6420,"produce_msgs_s":274573.6,"produce_mb_s":70.29,"consume_s":2.0483,"consume_msgs_s":488210.3,"consume_mb_s":124.98}
+
+BUILD SUCCESSFUL in 8s
+2 actionable tasks: 1 executed, 1 up-to-date
