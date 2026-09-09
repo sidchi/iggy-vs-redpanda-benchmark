@@ -1,0 +1,17 @@
+[config] target=IGGY messages=1000000 size=256B batch=1000 partitions=1
+
+┌─────────────── RESULT ───────────────┐
+  target        : IGGY
+  messages      : 1,000,000
+  payload       : 256 B
+  batch         : 1000
+  partitions    : 1
+  ─────────────────────────────────────
+  produce       : 4.029 s
+    → msgs/sec  : 248,204
+    → MB/sec    : 63.5
+  consume       : 2.309 s
+    → msgs/sec  : 433,062
+    → MB/sec    : 110.9
+└──────────────────────────────────────┘
+{"target":"IGGY","messages":1000000,"size":256,"batch":1000,"partitions":1,"produce_s":4.0289,"produce_msgs_s":248204.2,"produce_mb_s":63.54,"consume_s":2.3091,"consume_msgs_s":433062.4,"consume_mb_s":110.86}
