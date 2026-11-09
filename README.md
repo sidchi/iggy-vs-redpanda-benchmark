@@ -6,6 +6,88 @@ This harness is the *scaffolding* for the InfoQ article "Evaluating Apache Iggy:
 
 ---
 
+## Round 3 (current) — what changed and how to run it
+
+Round 3 fixes the two things reviewers flagged about the earlier run: it exercises the
+thread-per-core design properly, and it tests the current Iggy version.
+
+**Key changes from Round 2:**
+
+- **Iggy 0.9.0** (was 0.6.0). 0.9.0 uses the VSR wire protocol; `enforce_fsync` was removed
+  and durability is now a per-topic option (`replicated` | `persisted`). `IGGY_SYSTEM_*`
+  env vars dropped the `SYSTEM_` segment. 0.8.x clients cannot talk to a 0.9.0 server.
+- **Dedicated multi-core box** (4–8 dedicated vCPU, not 2 shared), so thread-per-core has
+  cores to scale across and the signal isn't buried in shared-vCPU noise.
+- **Partition sweep** (1, 4, 8) — the headline result is *scaling vs. parallelism*, not a
+  single point. A single partition pins work to ~one shard and barely tests the design.
+- **Latency mode** (`--mode latency`): p50/p99/p99.9/p99.99 of single-message round-trips,
+  via HdrHistogram with coordinated-omission correction when paced (`--rate`).
+- **Per-core CPU capture** (`mpstat -P ALL`) during every run — direct evidence shards are
+  active.
+
+### Box prep (Ubuntu, dedicated 4–8 vCPU)
+
+```bash
+sudo apt-get update && sudo apt-get install -y docker.io docker-compose-v2 openjdk-21-jdk unzip git sysstat
+sudo snap install gradle --classic
+# log out/in for docker group, or run docker via sudo
+```
+
+Set `--smp` in `docker-compose.yml` (Redpanda) to the box's core count before running.
+
+### Confirming the 0.9.0 Java SDK API (DO THIS FIRST)
+
+The 0.9.0 API drifted from both the docs and the 0.6.0 jar. Every call marked `TODO(0.9.0)`
+in `IggyDriver.java` / `SmokeTest.java` must be confirmed against the real jar before the
+first run — this is what cost a debugging cycle last time. After a `gradle build` pulls the
+jar:
+
+```bash
+JAR=$(find ~/.gradle -name "iggy-0.9.0.jar" | head -1)
+javap -p -cp "$JAR" org.apache.iggy.client.blocking.tcp.IggyTcpClient
+javap -p -cp "$JAR" 'org.apache.iggy.client.blocking.tcp.IggyTcpClient$Builder'
+javap -p -cp "$JAR" org.apache.iggy.client.blocking.TopicsClient   # find the durability overload
+javap -p -cp "$JAR" org.apache.iggy.client.blocking.MessagesClient
+```
+
+Wire the confirmed `createTopic` durability overload (map `DURABLE` → `persisted`) in
+`IggyDriver.ensureTopic`. **Do not run the `durable` sweep until that TODO is wired** — until
+then Iggy ignores `--durability` and the durable Iggy cells are invalid. The harness warns on
+stderr when this happens.
+
+### Run it
+
+```bash
+gradle wrapper --gradle-version 8.10.2   # if not already generated
+gradle build -x test                     # pulls jars; then do the javap pass above
+./gradlew smokeTest                      # must print 10 sent / 10 received
+
+# Full sweep (default durability): 1/4/8 partitions × both engines × throughput+latency, 6 runs each
+./run-sweep.sh
+
+# Durable sweep — only after the Iggy durability TODO is wired:
+DURABILITY=durable ./run-sweep.sh
+```
+
+Results land in `results-r3/*.txt` (one JSON line per run) and per-core CPU in
+`results-r3/cpu/*.mpstat`. Discard run 1 of each cell as warm-up; report median + spread.
+
+### New CLI flags
+
+| Flag | Values | Meaning |
+| --- | --- | --- |
+| `--mode` | `throughput` \| `latency` | bulk msgs/sec, or per-message percentiles |
+| `--durability` | `default` \| `durable` | fast (acks before durable) vs synchronous, matched both sides |
+| `--partitions` | N | topic partition count (sweep 1/4/8) |
+| `--latency-samples` | N | latency mode: timed round-trips to record |
+| `--rate` | Hz | latency mode: paced send rate (enables CO correction); 0 = closed-loop |
+
+Everything below this section is the original Round-2 guidance; the version-coherence "trap"
+section refers to the 0.6.0-era VSR split and is superseded by "SDK and server must both be
+0.9.x" above.
+
+---
+
 ## Step 0 — Get these files onto your machine, then into a public GitHub repo
 
 **Where the zip comes from:** `iggy-bench.zip` was generated in the Claude conversation that

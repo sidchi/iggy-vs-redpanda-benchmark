@@ -1,6 +1,23 @@
+# Round 3 — Apache Iggy 0.9.0 vs Redpanda, single-node each.
+#
+# ┌─────────────────────────────────────────────────────────────────────────┐
+# │ 0.9.0 CHANGES BAKED IN HERE — confirm against the 0.9.0 release notes:    │
+# │  - Env vars: the [system] section was flattened into root config, so      │
+# │    IGGY_SYSTEM_* dropped the SYSTEM_ segment. The old                      │
+# │    IGGY_SYSTEM_SEGMENT_ENFORCE_FSYNC no longer exists (enforce_fsync was   │
+# │    removed entirely); durability is now a per-TOPIC option set from the    │
+# │    client (replicated|persisted) — see IggyDriver TODO(0.9.0).             │
+# │  - On-disk format changed with no migration: a FRESH data dir is required  │
+# │    (the --fresh flag / empty volume). 0.8.x clients cannot talk to a       │
+# │    0.9.0 server, so SDK and server must both be 0.9.x.                     │
+# │  - A wildcard bind still needs node.advertised_address.                    │
+# │ PIN the exact 0.9.x server tag below and record it in the article.        │
+# └─────────────────────────────────────────────────────────────────────────┘
+
 services:
   iggy:
-    image: apache/iggy:0.6.0
+    image: apache/iggy:0.9.0   # PIN_ME — confirm this is the exact published 0.9.x tag
+    # io_uring needs these — the thread-per-core runtime panics in a default-locked container.
     security_opt:
       - seccomp:unconfined
     cap_add:
@@ -8,16 +25,17 @@ services:
     ulimits:
       memlock: -1
     environment:
-      # Bind to all interfaces inside the container so the published port works
+      # 0.9.0: IGGY_SYSTEM_* lost the SYSTEM_ segment. Bind + advertised address:
       IGGY_TCP_ADDRESS: "0.0.0.0:8090"
-      # Server refuses a wildcard bind with no advertised address; give it localhost
       IGGY_NODE_ADVERTISED_ADDRESS: "127.0.0.1"
-      # Create the well-known iggy/iggy root user (otherwise a random pw is generated)
+      # Root creds still required on first boot (fresh data dir):
       IGGY_ROOT_USERNAME: "iggy"
       IGGY_ROOT_PASSWORD: "iggy"
+      # NOTE: no IGGY_*_ENFORCE_FSYNC here — that option was removed in 0.9.0.
+      # Durability is set per-topic by the client (IggyDriver), not by env var.
     ports:
-      - "8090:8090"
-      - "3000:3000"
+      - "8090:8090"   # TCP (VSR wire protocol) — used by the Java SDK
+      - "3000:3000"   # HTTP
     healthcheck:
       test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8090' 2>/dev/null || exit 1"]
       interval: 3s
@@ -25,19 +43,23 @@ services:
       retries: 20
 
   redpanda:
-    image: redpandadata/redpanda:v24.2.7
+    image: redpandadata/redpanda:v24.2.7   # PIN_ME — bump to current Redpanda and record the tag
+    # RP_FSYNC_FLAG is injected by run-sweep.sh:
+    #   DEFAULT durability  -> --unsafe-bypass-fsync=true   (fast, matches Iggy default)
+    #   DURABLE  durability  -> --unsafe-bypass-fsync=false  (real fsync, matches Iggy persisted)
     command:
       - redpanda
       - start
-      - --smp=2
-      - --memory=700M
+      - --smp=4                     # match the box's core count for a fair fight (set per box)
+      - --memory=2G
       - --reserve-memory=0M
       - --node-id=0
       - --check=false
       - --kafka-addr=PLAINTEXT://0.0.0.0:19092
       - --advertise-kafka-addr=PLAINTEXT://127.0.0.1:19092
+      - "${RP_FSYNC_FLAG:---unsafe-bypass-fsync=true}"
     ports:
-      - "19092:19092"
+      - "19092:19092"   # Kafka API
     healthcheck:
       test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true' || exit 1"]
       interval: 3s
